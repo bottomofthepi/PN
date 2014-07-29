@@ -10,30 +10,12 @@
 #include "PerlinNoise.h"
 #include "shaders.cpp"
 
-
 #define GLEW_STATIC
 #include <GL/glew.h>
 #include <glm/glm.hpp>
 #include <GLFW/glfw3.h>
 
-// 4 triangles to be rendered
-GLfloat vertices_position[24] = {
-0.0, 0.0,
-0.5, 0.0,
-0.5, 0.5,
-
-0.0, 0.0,
-0.0, 0.5,
--0.5, 0.5,
-
-0.0, 0.0,
--0.5, 0.0,
--0.5, -0.5,
-
-0.0, 0.0,
-0.0, -0.5,
-0.5, -0.5,
-};
+#include <FreeImage.h>
 
 //Define the size of the image
 unsigned int width = 600, height = 450;
@@ -49,11 +31,18 @@ GLuint load_and_compile_shader(const char *fname, GLenum shaderType);
 //Create a program from two shaders
 GLuint create_program(const char *path_vert_shader, const char *path_frag_shader);
 
-//Render the scene
+
+// Render scene
 void display(GLuint &vao);
 
-//Initialize the data to be rendered
+// Initialize the data to be rendered
 void initialize(GLuint &vao);
+
+void load_image(const char* fname);
+
+void wrap_tests();
+
+GLuint wrap_option = 0;
 
 static void error_callback( int error, const char* description )
 {
@@ -98,36 +87,14 @@ int main() {
     glewExperimental = GL_TRUE;
     glewInit();
 
+    //Create a Vetex Array Object
+    GLuint vao;
 
-    //Create Vertex Array Object
-    GLuint VertexArrayID;
-    glGenVertexArrays( 1, &VertexArrayID );
-    glBindVertexArray( VertexArrayID );
-
-
-    //Load Shaders into a shader program
-    GLuint shaderProgram = LoadShaders( "shaders/vert.shader", "shaders/frag.shader" );
-    glUseProgram(shaderProgram);
-
-    GLuint VertexBufferID;
-    glGenBuffers( 1, &VertexBufferID ); //Generate 1 buffer
-    glBindBuffer( GL_ARRAY_BUFFER, VertexBufferID );
-    glBufferData( GL_ARRAY_BUFFER, sizeof(vertices_position), vertices_position, GL_STATIC_DRAW );
+    //Initialize the data to be rendered
+    initialize(vao);
     
-    GLint posAttrib = glGetAttribLocation( shaderProgram, "position" );
-    glVertexAttribPointer( posAttrib, 2, GL_FLOAT, GL_FALSE, 0, 0);
-    glEnableVertexAttribArray( posAttrib ); // Enable the vertex attrib
-    
-    GLint colAttrib = glGetAttribLocation( shaderProgram, "position" );
-    glVertexAttribPointer( colAttrib, 2, GL_FLOAT, GL_FALSE, 0, 0);
-    glEnableVertexAttribArray( colAttrib );
-
-
-    glEnable(GL_PROGRAM_POINT_SIZE);
-
-    /*
     //Generate a PPM image
-    //
+    /*
 
     //Create an empty ppm image
     ppm image(width, height);
@@ -155,23 +122,195 @@ int main() {
     }
 
     //Save the image to a binary ppm file
-    image.write("floortile.ppm");*/
-
+    image.write("floortile.ppm");
+*/
     //Rendering loop
     int running = GL_TRUE;
     while ( glfwGetKey( window, GLFW_KEY_ESCAPE ) != GLFW_PRESS && !glfwWindowShouldClose(window) )
     {
-        glClear(GL_COLOR_BUFFER_BIT);
-        glClearColor( 1.0f, 0.0f, 0.0f, 1.0f);
-        glBindVertexArray(VertexArrayID);
-        glDrawArrays(GL_POINTS, 0, 12);
+        display(vao);
         //Poll for events
         glfwPollEvents();
         glfwSwapBuffers(window);
-
-        //Check if the window was closed
     }
 
     glfwTerminate();
     return 0;
 } 
+
+
+// Render scene
+void display(GLuint &vao) {
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glBindVertexArray(vao);
+    glDrawElements( GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+}
+
+void initialize(GLuint &vao) {
+    // Use a Vertex Array Object
+    glGenVertexArrays(1, &vao);
+    glBindVertexArray(vao);
+
+    // 1 square (made by 2 triangles) to be rendered
+    GLfloat vertices_position[8] = {
+        -1.0, -1.0,
+        1.0, -1.0,
+        1.0, 1.0,
+        -1.0, 1.0,
+    };
+
+    GLfloat texture_coord[8] = {
+        0.0, 0.0,
+        1.0, 0.0,
+        1.0, 1.0,
+        0.0, 1.0,
+    };
+
+    GLuint indices[6] = {
+        0, 1, 2,
+        2, 3, 0
+    };
+
+    // Create a Vector Buffer Object that will store the vertices on video memory
+    GLuint vbo;
+    glGenBuffers(1, &vbo);
+
+    // Allocate space for vertex positions and texture coordinates
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices_position) + sizeof(texture_coord), NULL, GL_STATIC_DRAW);
+
+    // Transfer the vertex positions:
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices_position), vertices_position);
+
+    // Transfer the texture coordinates:
+    glBufferSubData(GL_ARRAY_BUFFER, sizeof(vertices_position), sizeof(texture_coord), texture_coord);
+
+    // Create an Element Array Buffer that will store the indices array:
+    GLuint eab;
+    glGenBuffers(1, &eab);
+
+    // Transfer the data from indices to eab
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, eab);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+
+    // Create a texture
+    GLuint texture;
+    glGenTextures(1, &texture);
+
+    // Specify that we work with a 2D texture
+    glBindTexture(GL_TEXTURE_2D, texture);
+
+    load_image("pictures/floor.ppm");
+
+
+    //Load Shaders into a shader program
+    GLuint shaderProgram = LoadShaders( "shaders/vert.shader", "shaders/frag.shader" );
+    glUseProgram(shaderProgram);
+    
+     // Get the location of the attributes that enters in the vertex shader
+    GLint position_attribute = glGetAttribLocation(shaderProgram, "position");
+
+    // Specify how the data for position can be accessed
+    glVertexAttribPointer(position_attribute, 2, GL_FLOAT, GL_FALSE, 0, 0);
+
+    // Enable the attribute
+    glEnableVertexAttribArray(position_attribute);
+
+    // Texture coord attribute
+    GLint texture_coord_attribute = glGetAttribLocation(shaderProgram, "texture_coord");
+    glVertexAttribPointer(texture_coord_attribute, 2, GL_FLOAT, GL_FALSE, 0, (GLvoid *)sizeof(vertices_position));
+    glEnableVertexAttribArray(texture_coord_attribute);
+
+    }
+
+
+void load_image(const char *fname) {
+
+    // active only for static linking
+    #ifdef FREEIMAGE_LIB
+    FreeImage_Initialise();
+    #endif
+
+    FIBITMAP *bitmap;
+    // Get the format of the image file
+    FREE_IMAGE_FORMAT fif =FreeImage_GetFileType(fname, 0);
+
+    // If the format can't be determined, try to guess the format from the file name
+    if(fif == FIF_UNKNOWN) {
+        fif = FreeImage_GetFIFFromFilename(fname);
+    }
+
+    // Load the data in bitmap if possible
+    if(fif != FIF_UNKNOWN && FreeImage_FIFSupportsReading(fif)) {
+        bitmap = FreeImage_Load(fif, fname);
+    }
+    else {
+        bitmap = NULL;
+    }
+
+    // PROCESS IMAGE if bitmap was successfully initialized
+    if(bitmap) {
+    unsigned int w = FreeImage_GetWidth(bitmap);
+    unsigned int h = FreeImage_GetHeight(bitmap);
+    unsigned pixel_size = FreeImage_GetBPP(bitmap);
+
+    // Get a pointer to the pixel data
+    BYTE *data = (BYTE*)FreeImage_GetBits(bitmap);
+
+    // Process only RGB and RGBA images
+    if(pixel_size == 24) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_BGR, GL_UNSIGNED_BYTE, (GLvoid*)data);
+    }
+    else if (pixel_size == 32) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_BGRA, GL_UNSIGNED_BYTE, (GLvoid*)data);
+    }
+    else {
+        std::cerr << "pixel size = " << pixel_size << " don't know how to process this case. I'm out!" << std::endl;
+        exit(-1);
+    }
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    //wrap_tests();
+    }
+    else {
+        std::cerr << "Unable to load the image file " << fname << " I'm out!" << std::endl;
+        exit(-1);
+    }
+
+// Clean bitmap;
+        FreeImage_Unload(bitmap);
+
+    // active only for static linking
+    #ifdef FREEIMAGE_LIB
+    FreeImage_DeInitialise();
+    #endif
+}
+
+
+/*void wrap_tests() {
+    if (wrap_option == 0) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_LINEAR);
+        std::cout << "Using GL_REPEAT" << std::endl;
+    }
+    else if(wrap_option == 1) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        std::cout << "Using GL_CLAMP_TO_EDGE" << std::endl;
+    }
+    else if(wrap_option == 2) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+        std::cout << "Using GL_CLAMP_TO_BORDER" << std::endl;
+    }
+    else if(wrap_option == 3) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
+        std::cout << "Using GL_MIRRORED_REPEAT" << std::endl;
+    }   
+}
+*/
+
